@@ -1,0 +1,47 @@
+# --- Secrets / per-machine config ---
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# --- Go build output ---
+bin/
+dist/
+out/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# --- Go workspace / vendor (not vendoring this repo) ---
+vendor/
+go.work
+go.work.sum
+
+# --- Editor / IDE ---
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Temporary docx extraction (used only during analysis) ---
+_docx_extract/
+*.tmp
+*.log
+
+# --- Generated proto stubs (uncomment if you decide not to commit them) ---
+# proto/**/*.pb.go
+# proto/**/*_grpc.pb.go
+
+# --- Docker volumes (volumes live outside repo, but just in case) ---
+mongo_data/
