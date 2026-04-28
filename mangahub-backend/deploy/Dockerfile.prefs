@@ -1,0 +1,11 @@
+FROM golang:1.22-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum* ./
+RUN go mod download || true
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/prefs-svc ./cmd/prefs-svc
+
+FROM gcr.io/distroless/static-debian12
+COPY --from=build /out/prefs-svc /prefs-svc
+EXPOSE 50054
+ENTRYPOINT ["/prefs-svc"]

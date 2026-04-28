@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package mangahub.prefs.v1;
+
+option go_package = "mangahub-backend/proto/prefspb;prefspb";
+
+import "google/protobuf/empty.proto";
+
+service UserPreferences {
+  rpc GetPreferences(GetPreferencesRequest) returns (Preferences);
+  rpc UpdatePreferences(UpdatePreferencesRequest) returns (Preferences);
+  rpc Subscribe(SubscribeRequest) returns (google.protobuf.Empty);
+  rpc Unsubscribe(UnsubscribeRequest) returns (google.protobuf.Empty);
+  rpc ListSubscriptions(ListSubscriptionsRequest) returns (ListSubscriptionsResponse);
+}
+
+message Preferences {
+  string user_id = 1;
+  repeated string favorite_genres = 2;
+  string language = 3;
+  bool nsfw = 4;
+}
+
+message GetPreferencesRequest { string user_id = 1; }
+message UpdatePreferencesRequest { Preferences preferences = 1; }
+message SubscribeRequest { string user_id = 1; string room = 2; }
+message UnsubscribeRequest { string user_id = 1; string room = 2; }
+message ListSubscriptionsRequest { string user_id = 1; }
+message ListSubscriptionsResponse { repeated string rooms = 1; }

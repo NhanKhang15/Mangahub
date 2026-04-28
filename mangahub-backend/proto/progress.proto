@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package mangahub.progress.v1;
+
+option go_package = "mangahub-backend/proto/progresspb;progresspb";
+
+service ReadingProgress {
+  rpc UpsertProgress(UpsertProgressRequest) returns (Progress);
+  rpc GetProgress(GetProgressRequest) returns (Progress);
+  rpc ListUserProgress(ListUserProgressRequest) returns (ListUserProgressResponse);
+  rpc Stats(StatsRequest) returns (StatsResponse);
+}
+
+message Progress {
+  string user_id = 1;
+  string manga_id = 2;
+  string status = 3; // reading | completed | plan_to_read | dropped
+  int32 current_chapter = 4;
+  double rating = 5;
+  string last_read_at = 6;
+}
+
+message UpsertProgressRequest { Progress progress = 1; }
+message GetProgressRequest { string user_id = 1; string manga_id = 2; }
+message ListUserProgressRequest { string user_id = 1; string status = 2; int32 page = 3; int32 limit = 4; }
+message ListUserProgressResponse { repeated Progress items = 1; int64 total = 2; }
+message StatsRequest { string user_id = 1; }
+message StatsResponse { int32 reading = 1; int32 completed = 2; int32 plan_to_read = 3; int32 chapters_read = 4; }

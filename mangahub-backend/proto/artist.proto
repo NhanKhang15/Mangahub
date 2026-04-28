@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package mangahub.artist.v1;
+
+option go_package = "mangahub-backend/proto/artistpb;artistpb";
+
+service Artist {
+  rpc GetArtist(GetArtistRequest) returns (ArtistEntity);
+  rpc CreateArtist(CreateArtistRequest) returns (ArtistEntity);
+  rpc SearchArtist(SearchArtistRequest) returns (ListArtistResponse);
+  rpc ListArtistManga(ListArtistMangaRequest) returns (ListArtistMangaResponse);
+}
+
+message ArtistEntity {
+  string id = 1;
+  string name = 2;
+  string role = 3; // artist | author | both
+  string bio = 4;
+  repeated string manga_ids = 5;
+}
+
+message GetArtistRequest { string id = 1; }
+message CreateArtistRequest { ArtistEntity artist = 1; }
+message SearchArtistRequest { string query = 1; int32 page = 2; int32 limit = 3; }
+message ListArtistResponse { repeated ArtistEntity items = 1; int64 total = 2; }
+message ListArtistMangaRequest { string artist_id = 1; int32 page = 2; int32 limit = 3; }
+message ListArtistMangaResponse { repeated string manga_ids = 1; int64 total = 2; }

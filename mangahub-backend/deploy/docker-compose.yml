@@ -1,0 +1,92 @@
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mongo-express:
+    image: mongo-express:1
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://mongo:27017
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  catalog-svc:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.catalog
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      GRPC_PORT: "50051"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  artist-svc:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.artist
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      GRPC_PORT: "50052"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  progress-svc:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.progress
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      GRPC_PORT: "50053"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  prefs-svc:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.prefs
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      GRPC_PORT: "50054"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gateway
+    ports:
+      - "8080:8080"
+    environment:
+      HTTP_PORT: "8080"
+      JWT_SECRET: change-me
+      CATALOG_ADDR: catalog-svc:50051
+      ARTIST_ADDR: artist-svc:50052
+      PROGRESS_ADDR: progress-svc:50053
+      PREFS_ADDR: prefs-svc:50054
+      MANGADEX_BASE: https://api.mangadex.org
+    depends_on:
+      - catalog-svc
+      - artist-svc
+      - progress-svc
+      - prefs-svc
+
+volumes:
+  mongo_data:

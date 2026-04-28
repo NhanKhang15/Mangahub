@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package mangahub.catalog.v1;
+
+option go_package = "mangahub-backend/proto/catalogpb;catalogpb";
+
+import "google/protobuf/empty.proto";
+
+service MangaCatalog {
+  rpc GetManga(GetMangaRequest) returns (Manga);
+  rpc CreateManga(CreateMangaRequest) returns (Manga);
+  rpc UpdateManga(UpdateMangaRequest) returns (Manga);
+  rpc DeleteManga(DeleteMangaRequest) returns (google.protobuf.Empty);
+  rpc ListManga(ListMangaRequest) returns (ListMangaResponse);
+  rpc SearchManga(SearchMangaRequest) returns (ListMangaResponse);
+}
+
+message Manga {
+  string id = 1;
+  string title = 2;
+  repeated string alt_titles = 3;
+  repeated string artist_ids = 4;
+  repeated string author_ids = 5;
+  string description = 6;
+  string status = 7;
+  repeated string genres = 8;
+  repeated string tags = 9;
+  int32 chapters = 10;
+  double rating = 11;
+  string cover_url = 12;
+  int32 popularity = 13;
+}
+
+message GetMangaRequest { string id = 1; }
+message CreateMangaRequest { Manga manga = 1; }
+message UpdateMangaRequest { Manga manga = 1; }
+message DeleteMangaRequest { string id = 1; }
+
+message ListMangaRequest {
+  int32 page = 1;
+  int32 limit = 2;
+  string genre = 3;
+  repeated string tags = 4;
+  string sort = 5;
+}
+
+message SearchMangaRequest {
+  string query = 1;
+  int32 page = 2;
+  int32 limit = 3;
+}
+
+message ListMangaResponse {
+  repeated Manga items = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  int64 total = 4;
+}
