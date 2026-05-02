@@ -9,12 +9,14 @@ import (
 	"syscall"
 	"time"
 
-	"mangahub-backend/internal/artist"
-	"mangahub-backend/internal/catalog"
-	"mangahub-backend/internal/gateway"
-	"mangahub-backend/internal/platform/config"
-	mongoplat "mangahub-backend/internal/platform/mongo"
-	"mangahub-backend/internal/progress"
+	"mangahub-backend/internal/core/config"
+	mongoplat "mangahub-backend/internal/core/database"
+	"mangahub-backend/internal/core/external"
+	"mangahub-backend/internal/core/router"
+	
+	artistService "mangahub-backend/internal/modules/artist/service"
+	mangaService "mangahub-backend/internal/modules/manga/service"
+	progressService "mangahub-backend/internal/modules/progress/service"
 )
 
 func main() {
@@ -38,18 +40,28 @@ func main() {
 	}
 	log.Printf("mongo OK: db=%s", cfg.MongoDB)
 
-	mangaRepo := catalog.NewMongoRepo(cl.DB)
-	artistRepo := artist.NewMongoRepo(cl.DB)
-	progressRepo := progress.NewMongoRepo(cl.DB)
+	mangaRepo := mangaService.NewMongoRepo(cl.DB)
+	artistRepo := artistService.NewMongoRepo(cl.DB)
+	progressRepo := progressService.NewMongoRepo(cl.DB)
 
-	deps := gateway.Deps{
+	mdClient := external.NewMangaDexClient(cfg.MangaDexBase, cfg.MangaDexToken)
+	var malClient *external.MyAnimeListClient
+	if cfg.MALClientID != "" {
+		malClient = external.NewMyAnimeListClient(cfg.MALBase, cfg.MALClientID)
+	}
+	alClient := external.NewAniListClient(cfg.AniListBase, cfg.AniListToken)
+	agg := external.NewAggregator(mdClient, malClient, alClient)
+
+	deps := router.Deps{
 		MongoClient: cl.Mongo,
-		MangaSvc:    catalog.NewService(mangaRepo),
-		ArtistSvc:   artist.NewService(artistRepo),
-		ProgressSvc: progress.NewService(progressRepo),
+		MangaSvc:    mangaService.NewService(mangaRepo),
+		ArtistSvc:   artistService.NewService(artistRepo),
+		ProgressSvc: progressService.NewService(progressRepo),
+		Aggregator:  agg,
+		AdminToken:  cfg.AdminToken,
 	}
 
-	r := gateway.NewRouter(cfg.Env, deps)
+	r := router.NewRouter(cfg.Env, deps)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,

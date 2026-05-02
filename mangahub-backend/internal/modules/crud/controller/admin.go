@@ -1,0 +1,97 @@
+package controller
+
+import (
+	"mangahub-backend/internal/modules/crud/dto"
+
+mangaModel "mangahub-backend/internal/modules/manga/model"
+	"context"
+	"errors"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+
+	"mangahub-backend/internal/core/external"
+	"mangahub-backend/internal/core/response"
+
+	mangaService "mangahub-backend/internal/modules/manga/service"
+)
+
+type AdminHandler struct {
+	agg      *external.Aggregator
+	mangaSvc *mangaService.Service
+}
+
+func NewAdminHandler(agg *external.Aggregator, mangaSvc *mangaService.Service) *AdminHandler {
+	return &AdminHandler{agg: agg, mangaSvc: mangaSvc}
+}
+
+
+func (h *AdminHandler) Import(c *gin.Context) {
+	var q dto.ImportQuery
+	if err := c.ShouldBindQuery(&q); err != nil {
+		response.RespondError(c, http.StatusBadRequest, "INVALID_QUERY", err.Error(), nil)
+		return
+	}
+	ctx := c.Request.Context()
+
+	items, err := h.fetch(ctx, q)
+	if err != nil {
+		response.RespondError(c, http.StatusBadGateway, "UPSTREAM_ERROR", err.Error(), nil)
+		return
+	}
+
+	res := dto.ImportResult{Source: q.Source, Query: q.Q, Fetched: len(items)}
+	for _, m := range items {
+		action, _, err := h.mangaSvc.UpsertExternal(ctx, m)
+		if err != nil {
+			res.Skipped++
+			continue
+		}
+		switch action {
+		case mangaService.UpsertInserted:
+			res.Inserted++
+		case mangaService.UpsertUpdated:
+			res.Updated++
+		}
+	}
+	c.JSON(http.StatusOK, res)
+}
+
+func (h *AdminHandler) fetch(ctx context.Context, q dto.ImportQuery) ([]*mangaModel.Manga, error) {
+	switch q.Source {
+	case "all":
+		return h.agg.Search(ctx, q.Q, q.Page)
+	case "mangadex":
+		if h.agg.MangaDex == nil {
+			return nil, errSourceDisabled("mangadex")
+		}
+		ents, err := h.agg.MangaDex.SearchManga(ctx, q.Q, q.Page)
+		if err != nil {
+			return nil, err
+		}
+		return external.MergeEntities(ents, nil, nil), nil
+	case "myanimelist":
+		if h.agg.MAL == nil {
+			return nil, errSourceDisabled("myanimelist")
+		}
+		ents, err := h.agg.MAL.SearchManga(ctx, q.Q, q.Page)
+		if err != nil {
+			return nil, err
+		}
+		return external.MergeEntities(nil, ents, nil), nil
+	case "anilist":
+		if h.agg.AniList == nil {
+			return nil, errSourceDisabled("anilist")
+		}
+		ents, err := h.agg.AniList.SearchManga(ctx, q.Q, q.Page)
+		if err != nil {
+			return nil, err
+		}
+		return external.MergeEntities(nil, nil, ents), nil
+	}
+	return nil, nil
+}
+
+func errSourceDisabled(name string) error {
+	return errors.New("source disabled (missing credentials): " + name)
+}
