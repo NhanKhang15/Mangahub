@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -9,27 +10,49 @@ import (
 
 const ctxUserID = "user_id"
 
-// RequireUser is a placeholder until Phase 2 introduces JWT.
-// It expects header "X-User-ID: <hex objectid>" so that /me/* endpoints can
-// be tested before authentication is wired in.
-func RequireUser() gin.HandlerFunc {
+type TokenVerifier interface {
+	VerifyToken(tokenString string) (string, error)
+}
+
+func RequireUser(verifier TokenVerifier) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		raw := c.GetHeader("X-User-ID")
-		if raw == "" {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "missing X-User-ID header (placeholder until JWT in Phase 2)",
+				"error": "missing Authorization header",
 				"code":  "UNAUTHORIZED",
 			})
 			return
 		}
-		id, err := primitive.ObjectIDFromHex(raw)
+
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "invalid Authorization header format",
+				"code":  "UNAUTHORIZED",
+			})
+			return
+		}
+
+		tokenString := parts[1]
+		userIDStr, err := verifier.VerifyToken(tokenString)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "X-User-ID is not a valid ObjectID hex",
+				"error": "invalid or expired token",
 				"code":  "UNAUTHORIZED",
 			})
 			return
 		}
+
+		id, err := primitive.ObjectIDFromHex(userIDStr)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "invalid user id in token",
+				"code":  "UNAUTHORIZED",
+			})
+			return
+		}
+
 		c.Set(ctxUserID, id)
 		c.Next()
 	}

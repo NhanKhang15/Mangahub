@@ -13,8 +13,11 @@ import (
 	mongoplat "mangahub-backend/internal/core/database"
 	"mangahub-backend/internal/core/external"
 	"mangahub-backend/internal/core/router"
+	"mangahub-backend/internal/core/ws"
+	"mangahub-backend/internal/core/poller"
 	
 	artistService "mangahub-backend/internal/modules/artist/service"
+	authService "mangahub-backend/internal/modules/auth/service"
 	mangaService "mangahub-backend/internal/modules/manga/service"
 	progressService "mangahub-backend/internal/modules/progress/service"
 )
@@ -43,6 +46,7 @@ func main() {
 	mangaRepo := mangaService.NewMongoRepo(cl.DB)
 	artistRepo := artistService.NewMongoRepo(cl.DB)
 	progressRepo := progressService.NewMongoRepo(cl.DB)
+	authRepo := authService.NewMongoUserRepository(cl.DB)
 
 	mdClient := external.NewMangaDexClient(cfg.MangaDexBase, cfg.MangaDexToken)
 	var malClient *external.MyAnimeListClient
@@ -57,9 +61,18 @@ func main() {
 		MangaSvc:    mangaService.NewService(mangaRepo),
 		ArtistSvc:   artistService.NewService(artistRepo),
 		ProgressSvc: progressService.NewService(progressRepo),
+		AuthSvc:     authService.NewAuthService(authRepo, cfg.JWTSecret),
 		Aggregator:  agg,
 		AdminToken:  cfg.AdminToken,
 	}
+
+	hub := ws.NewHub()
+	go hub.Run()
+	
+	deps.Hub = hub
+
+	mangaPoller := poller.NewMangaPoller(hub, deps.MangaSvc, cfg.PollInterval)
+	go mangaPoller.Run(rootCtx)
 
 	r := router.NewRouter(cfg.Env, deps)
 

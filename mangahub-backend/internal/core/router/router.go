@@ -17,6 +17,11 @@ import (
 	progressService "mangahub-backend/internal/modules/progress/service"
 
 	crudController "mangahub-backend/internal/modules/crud/controller"
+
+	authController "mangahub-backend/internal/modules/auth/controller"
+	authService "mangahub-backend/internal/modules/auth/service"
+	wsController "mangahub-backend/internal/modules/ws/controller"
+	"mangahub-backend/internal/core/ws"
 )
 
 type Deps struct {
@@ -26,6 +31,8 @@ type Deps struct {
 	ProgressSvc *progressService.Service
 	Aggregator  *external.Aggregator
 	AdminToken  string
+	AuthSvc     *authService.AuthService
+	Hub         *ws.Hub
 }
 
 func NewRouter(env string, d Deps) *gin.Engine {
@@ -41,8 +48,17 @@ func NewRouter(env string, d Deps) *gin.Engine {
 	artistH := artistController.NewArtistHandler(d.ArtistSvc, d.MangaSvc)
 	statsH := crudController.NewStatsHandler(d.MangaSvc)
 	progressH := progressController.NewProgressHandler(d.ProgressSvc)
+	authH := authController.NewAuthHandler(d.AuthSvc)
+	wsH := wsController.NewWSHandler(d.Hub, d.AuthSvc)
 
 	r.GET("/healthz", healthH.Healthz)
+	r.GET("/ws", wsH.HandleWS)
+
+	auth := r.Group("/auth")
+	{
+		auth.POST("/register", authH.Register)
+		auth.POST("/login", authH.Login)
+	}
 
 	manga := r.Group("/manga")
 	{
@@ -69,7 +85,7 @@ func NewRouter(env string, d Deps) *gin.Engine {
 		stats.GET("/trending", statsH.Trending)
 	}
 
-	me := r.Group("/me", middleware.RequireUser())
+	me := r.Group("/me", middleware.RequireUser(d.AuthSvc))
 	{
 		me.GET("/reading", progressH.List)
 		me.PUT("/reading/:mangaId", progressH.Upsert)
@@ -78,10 +94,11 @@ func NewRouter(env string, d Deps) *gin.Engine {
 	}
 
 	if d.Aggregator != nil {
-		adminH := crudController.NewAdminHandler(d.Aggregator, d.MangaSvc)
+		adminH := crudController.NewAdminHandler(d.Aggregator, d.MangaSvc, d.Hub)
 		admin := r.Group("/admin", middleware.RequireAdmin(d.AdminToken))
 		{
 			admin.POST("/import", adminH.Import)
+			admin.POST("/notify", adminH.Notify)
 		}
 	}
 

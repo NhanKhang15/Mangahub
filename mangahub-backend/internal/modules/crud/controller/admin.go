@@ -14,15 +14,17 @@ mangaModel "mangahub-backend/internal/modules/manga/model"
 	"mangahub-backend/internal/core/response"
 
 	mangaService "mangahub-backend/internal/modules/manga/service"
+	"mangahub-backend/internal/core/ws"
 )
 
 type AdminHandler struct {
 	agg      *external.Aggregator
 	mangaSvc *mangaService.Service
+	hub      *ws.Hub
 }
 
-func NewAdminHandler(agg *external.Aggregator, mangaSvc *mangaService.Service) *AdminHandler {
-	return &AdminHandler{agg: agg, mangaSvc: mangaSvc}
+func NewAdminHandler(agg *external.Aggregator, mangaSvc *mangaService.Service, hub *ws.Hub) *AdminHandler {
+	return &AdminHandler{agg: agg, mangaSvc: mangaSvc, hub: hub}
 }
 
 
@@ -55,6 +57,25 @@ func (h *AdminHandler) Import(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, res)
+}
+
+func (h *AdminHandler) Notify(c *gin.Context) {
+	var req struct {
+		UserID  string `json:"user_id" binding:"required"`
+		Content string `json:"content" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.RespondError(c, http.StatusBadRequest, "INVALID_BODY", err.Error(), nil)
+		return
+	}
+
+	h.hub.SendDirect(&ws.DirectMessage{
+		UserID:  req.UserID,
+		Type:    "notification",
+		Content: req.Content,
+	})
+
+	c.JSON(http.StatusOK, gin.H{"status": "sent"})
 }
 
 func (h *AdminHandler) fetch(ctx context.Context, q dto.ImportQuery) ([]*mangaModel.Manga, error) {
