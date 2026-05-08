@@ -1,9 +1,6 @@
 package controller
 
 import (
-	"mangahub-backend/internal/modules/crud/dto"
-
-mangaModel "mangahub-backend/internal/modules/manga/model"
 	"context"
 	"errors"
 	"net/http"
@@ -12,21 +9,23 @@ mangaModel "mangahub-backend/internal/modules/manga/model"
 
 	"mangahub-backend/internal/core/external"
 	"mangahub-backend/internal/core/response"
-
-	mangaService "mangahub-backend/internal/modules/manga/service"
 	"mangahub-backend/internal/core/ws"
+	mangaGrpc "mangahub-backend/internal/modules/manga/grpcserver"
+	mangaModel "mangahub-backend/internal/modules/manga/model"
+
+	"mangahub-backend/internal/modules/crud/dto"
+	catalogpb "mangahub-backend/proto/catalogpb"
 )
 
 type AdminHandler struct {
-	agg      *external.Aggregator
-	mangaSvc *mangaService.Service
-	hub      *ws.Hub
+	agg    *external.Aggregator
+	client catalogpb.MangaCatalogClient
+	hub    *ws.Hub
 }
 
-func NewAdminHandler(agg *external.Aggregator, mangaSvc *mangaService.Service, hub *ws.Hub) *AdminHandler {
-	return &AdminHandler{agg: agg, mangaSvc: mangaSvc, hub: hub}
+func NewAdminHandler(agg *external.Aggregator, client catalogpb.MangaCatalogClient, hub *ws.Hub) *AdminHandler {
+	return &AdminHandler{agg: agg, client: client, hub: hub}
 }
-
 
 func (h *AdminHandler) Import(c *gin.Context) {
 	var q dto.ImportQuery
@@ -44,15 +43,17 @@ func (h *AdminHandler) Import(c *gin.Context) {
 
 	res := dto.ImportResult{Source: q.Source, Query: q.Q, Fetched: len(items)}
 	for _, m := range items {
-		action, _, err := h.mangaSvc.UpsertExternal(ctx, m)
+		resp, err := h.client.UpsertMangaByExternalIDs(ctx, &catalogpb.UpsertMangaByExternalIDsRequest{
+			Manga: mangaGrpc.MangaToProto(m),
+		})
 		if err != nil {
 			res.Skipped++
 			continue
 		}
-		switch action {
-		case mangaService.UpsertInserted:
+		switch resp.GetAction() {
+		case "insert":
 			res.Inserted++
-		case mangaService.UpsertUpdated:
+		case "update":
 			res.Updated++
 		}
 	}

@@ -4,24 +4,88 @@ package mangahub.artist.v1;
 
 option go_package = "mangahub-backend/proto/artistpb;artistpb";
 
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
 service Artist {
   rpc GetArtist(GetArtistRequest) returns (ArtistEntity);
   rpc CreateArtist(CreateArtistRequest) returns (ArtistEntity);
+  rpc UpdateArtist(UpdateArtistRequest) returns (ArtistEntity);
+  rpc DeleteArtist(DeleteArtistRequest) returns (google.protobuf.Empty);
+  rpc ListArtist(ListArtistRequest) returns (ListArtistResponse);
   rpc SearchArtist(SearchArtistRequest) returns (ListArtistResponse);
   rpc ListArtistManga(ListArtistMangaRequest) returns (ListArtistMangaResponse);
 }
 
 message ArtistEntity {
   string id = 1;
-  string name = 2;
-  string role = 3; // artist | author | both
-  string bio = 4;
-  repeated string manga_ids = 5;
+  map<string, string> external_ids = 2;
+  string name = 3;
+  string role = 4; // artist | author | both
+  string bio = 5;
+  repeated string manga_ids = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
 }
 
 message GetArtistRequest { string id = 1; }
 message CreateArtistRequest { ArtistEntity artist = 1; }
-message SearchArtistRequest { string query = 1; int32 page = 2; int32 limit = 3; }
-message ListArtistResponse { repeated ArtistEntity items = 1; int64 total = 2; }
-message ListArtistMangaRequest { string artist_id = 1; int32 page = 2; int32 limit = 3; }
-message ListArtistMangaResponse { repeated string manga_ids = 1; int64 total = 2; }
+message DeleteArtistRequest { string id = 1; }
+
+message ArtistPatch {
+  string name = 1;
+  bool name_set = 2;
+  string role = 3;
+  bool role_set = 4;
+  string bio = 5;
+  bool bio_set = 6;
+}
+
+message UpdateArtistRequest {
+  string id = 1;
+  ArtistPatch patch = 2;
+}
+
+message ListArtistRequest {
+  int32 page = 1;
+  int32 limit = 2;
+  string q = 3;
+}
+
+message SearchArtistRequest {
+  string query = 1;
+  int32 page = 2;
+  int32 limit = 3;
+}
+
+message ListArtistResponse {
+  repeated ArtistEntity items = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  int64 total = 4;
+}
+
+message ListArtistMangaRequest {
+  string artist_id = 1;
+  int32 page = 2;
+  int32 limit = 3;
+}
+
+// MangaSummary is a minimal projection used by ListArtistManga so that
+// artist-svc does not need to depend on the full catalog Manga message.
+message MangaSummary {
+  string id = 1;
+  string title = 2;
+  string cover_url = 3;
+  string status = 4;
+  int32 chapters = 5;
+  double rating = 6;
+  int32 popularity = 7;
+}
+
+message ListArtistMangaResponse {
+  repeated MangaSummary items = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  int64 total = 4;
+}

@@ -1,24 +1,26 @@
 package controller
 
 import (
-	"mangahub-backend/internal/modules/crud/dto"
-
-	"mangahub-backend/internal/core/response"
-
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
-	mangaService "mangahub-backend/internal/modules/manga/service"
+	"mangahub-backend/internal/core/response"
+	"mangahub-backend/internal/gateway/grpcclient"
+	mangaGrpc "mangahub-backend/internal/modules/manga/grpcserver"
+	mangaModel "mangahub-backend/internal/modules/manga/model"
+
+	"mangahub-backend/internal/modules/crud/dto"
+	catalogpb "mangahub-backend/proto/catalogpb"
 )
 
 type StatsHandler struct {
-	mangaSvc *mangaService.Service
+	client catalogpb.MangaCatalogClient
 }
 
-func NewStatsHandler(m *mangaService.Service) *StatsHandler { return &StatsHandler{mangaSvc: m} }
-
-
+func NewStatsHandler(c catalogpb.MangaCatalogClient) *StatsHandler {
+	return &StatsHandler{client: c}
+}
 
 func (h *StatsHandler) Popular(c *gin.Context) {
 	var q dto.LimitQuery
@@ -26,12 +28,11 @@ func (h *StatsHandler) Popular(c *gin.Context) {
 		response.RespondError(c, http.StatusBadRequest, "INVALID_QUERY", err.Error(), nil)
 		return
 	}
-	items, err := h.mangaSvc.Popular(c.Request.Context(), q.Limit)
-	if err != nil {
-		response.RespondDomainError(c, err)
+	resp, err := h.client.GetPopularManga(c.Request.Context(), &catalogpb.GetPopularMangaRequest{Limit: int32(q.Limit)})
+	if grpcclient.RespondGRPCError(c, err) {
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": items})
+	c.JSON(http.StatusOK, gin.H{"data": protoMangasToModels(resp.GetItems())})
 }
 
 func (h *StatsHandler) Trending(c *gin.Context) {
@@ -40,10 +41,21 @@ func (h *StatsHandler) Trending(c *gin.Context) {
 		response.RespondError(c, http.StatusBadRequest, "INVALID_QUERY", err.Error(), nil)
 		return
 	}
-	items, err := h.mangaSvc.Trending(c.Request.Context(), q.Limit)
-	if err != nil {
-		response.RespondDomainError(c, err)
+	resp, err := h.client.GetTrendingManga(c.Request.Context(), &catalogpb.GetTrendingMangaRequest{Limit: int32(q.Limit)})
+	if grpcclient.RespondGRPCError(c, err) {
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": items})
+	c.JSON(http.StatusOK, gin.H{"data": protoMangasToModels(resp.GetItems())})
+}
+
+func protoMangasToModels(items []*catalogpb.Manga) []*mangaModel.Manga {
+	out := make([]*mangaModel.Manga, 0, len(items))
+	for _, p := range items {
+		m, err := mangaGrpc.MangaFromProto(p)
+		if err != nil {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
 }

@@ -1,30 +1,27 @@
 package controller
 
 import (
-	"mangahub-backend/internal/modules/manga/dto"
-
-mangaModel "mangahub-backend/internal/modules/manga/model"
-	"mangahub-backend/internal/core/response"
-
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 
+	"mangahub-backend/internal/core/response"
+	"mangahub-backend/internal/gateway/grpcclient"
+	mangaGrpc "mangahub-backend/internal/modules/manga/grpcserver"
+	mangaModel "mangahub-backend/internal/modules/manga/model"
 
-
-
-	mangaService "mangahub-backend/internal/modules/manga/service"
+	"mangahub-backend/internal/modules/manga/dto"
+	catalogpb "mangahub-backend/proto/catalogpb"
 )
 
 type MangaHandler struct {
-	svc *mangaService.Service
+	client catalogpb.MangaCatalogClient
 }
 
-func NewMangaHandler(s *mangaService.Service) *MangaHandler { return &MangaHandler{svc: s} }
-
+func NewMangaHandler(c catalogpb.MangaCatalogClient) *MangaHandler {
+	return &MangaHandler{client: c}
+}
 
 func (h *MangaHandler) List(c *gin.Context) {
 	var q dto.ListMangaQuery
@@ -32,43 +29,39 @@ func (h *MangaHandler) List(c *gin.Context) {
 		response.RespondError(c, http.StatusBadRequest, "INVALID_QUERY", err.Error(), nil)
 		return
 	}
-	dq := mangaModel.MangaListQuery{
-		Page:  q.Page,
-		Limit: q.Limit,
+	tags := splitCSV(q.Tags)
+	resp, err := h.client.ListManga(c.Request.Context(), &catalogpb.ListMangaRequest{
+		Page:  int32(q.Page),
+		Limit: int32(q.Limit),
 		Genre: q.Genre,
+		Tags:  tags,
 		Q:     q.Q,
 		Sort:  q.Sort,
-	}
-	if q.Tags != "" {
-		for _, t := range strings.Split(q.Tags, ",") {
-			t = strings.TrimSpace(t)
-			if t != "" {
-				dq.Tags = append(dq.Tags, t)
-			}
-		}
-	}
-
-	items, total, err := h.svc.List(c.Request.Context(), dq)
-	if err != nil {
-		response.RespondDomainError(c, err)
+	})
+	if grpcclient.RespondGRPCError(c, err) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"data":  items,
+		"data":  protoMangasToModels(resp.GetItems()),
 		"page":  q.Page,
 		"limit": q.Limit,
-		"total": total,
+		"total": resp.GetTotal(),
 	})
 }
 
 func (h *MangaHandler) Get(c *gin.Context) {
-	id, ok := response.ParseObjectID(c, "id")
-	if !ok {
+	id := c.Param("id")
+	if id == "" {
+		response.RespondError(c, http.StatusBadRequest, "INVALID_ID", "missing manga id", nil)
 		return
 	}
-	m, err := h.svc.Get(c.Request.Context(), id)
-	if err != nil {
-		response.RespondDomainError(c, err)
+	resp, err := h.client.GetManga(c.Request.Context(), &catalogpb.GetMangaRequest{Id: id})
+	if grpcclient.RespondGRPCError(c, err) {
+		return
+	}
+	m, convErr := mangaGrpc.MangaFromProto(resp)
+	if convErr != nil {
+		response.RespondError(c, http.StatusInternalServerError, "INTERNAL", convErr.Error(), nil)
 		return
 	}
 	c.JSON(http.StatusOK, m)
@@ -80,41 +73,43 @@ func (h *MangaHandler) Create(c *gin.Context) {
 		response.RespondError(c, http.StatusBadRequest, "INVALID_BODY", err.Error(), nil)
 		return
 	}
-
-	artistIDs, ok := parseObjectIDList(c, "artist_ids", in.ArtistIDs)
-	if !ok {
+	if !validateHexList(c, "artist_ids", in.ArtistIDs) {
 		return
 	}
-	authorIDs, ok := parseObjectIDList(c, "author_ids", in.AuthorIDs)
-	if !ok {
+	if !validateHexList(c, "author_ids", in.AuthorIDs) {
 		return
 	}
 
-	m := &mangaModel.Manga{
+	pm := &catalogpb.Manga{
 		Title:       in.Title,
 		AltTitles:   in.AltTitles,
-		ArtistIDs:   artistIDs,
-		AuthorIDs:   authorIDs,
+		ArtistIds:   in.ArtistIDs,
+		AuthorIds:   in.AuthorIDs,
 		Description: in.Description,
 		Status:      in.Status,
 		Genres:      in.Genres,
 		Tags:        in.Tags,
-		Chapters:    in.Chapters,
+		Chapters:    int32(in.Chapters),
 		Rating:      in.Rating,
-		CoverURL:    in.CoverURL,
-		Popularity:  in.Popularity,
+		CoverUrl:    in.CoverURL,
+		Popularity:  int32(in.Popularity),
 	}
-	out, err := h.svc.Create(c.Request.Context(), m)
-	if err != nil {
-		response.RespondDomainError(c, err)
+	resp, err := h.client.CreateManga(c.Request.Context(), &catalogpb.CreateMangaRequest{Manga: pm})
+	if grpcclient.RespondGRPCError(c, err) {
 		return
 	}
-	c.JSON(http.StatusCreated, out)
+	m, convErr := mangaGrpc.MangaFromProto(resp)
+	if convErr != nil {
+		response.RespondError(c, http.StatusInternalServerError, "INTERNAL", convErr.Error(), nil)
+		return
+	}
+	c.JSON(http.StatusCreated, m)
 }
 
 func (h *MangaHandler) Update(c *gin.Context) {
-	id, ok := response.ParseObjectID(c, "id")
-	if !ok {
+	id := c.Param("id")
+	if id == "" {
+		response.RespondError(c, http.StatusBadRequest, "INVALID_ID", "missing manga id", nil)
 		return
 	}
 	var in dto.UpdateMangaInput
@@ -123,88 +118,126 @@ func (h *MangaHandler) Update(c *gin.Context) {
 		return
 	}
 
-	set := bson.M{}
+	patch := &catalogpb.MangaPatch{}
+	hasField := false
 	if in.Title != nil {
-		set["title"] = *in.Title
+		patch.Title, patch.TitleSet = *in.Title, true
+		hasField = true
 	}
 	if in.AltTitles != nil {
-		set["alt_titles"] = *in.AltTitles
+		patch.AltTitles, patch.AltTitlesSet = *in.AltTitles, true
+		hasField = true
 	}
 	if in.ArtistIDs != nil {
-		ids, ok := parseObjectIDList(c, "artist_ids", *in.ArtistIDs)
-		if !ok {
+		if !validateHexList(c, "artist_ids", *in.ArtistIDs) {
 			return
 		}
-		set["artist_ids"] = ids
+		patch.ArtistIds, patch.ArtistIdsSet = *in.ArtistIDs, true
+		hasField = true
 	}
 	if in.AuthorIDs != nil {
-		ids, ok := parseObjectIDList(c, "author_ids", *in.AuthorIDs)
-		if !ok {
+		if !validateHexList(c, "author_ids", *in.AuthorIDs) {
 			return
 		}
-		set["author_ids"] = ids
+		patch.AuthorIds, patch.AuthorIdsSet = *in.AuthorIDs, true
+		hasField = true
 	}
 	if in.Description != nil {
-		set["description"] = *in.Description
+		patch.Description, patch.DescriptionSet = *in.Description, true
+		hasField = true
 	}
 	if in.Status != nil {
-		set["status"] = *in.Status
+		patch.Status, patch.StatusSet = *in.Status, true
+		hasField = true
 	}
 	if in.Genres != nil {
-		set["genres"] = *in.Genres
+		patch.Genres, patch.GenresSet = *in.Genres, true
+		hasField = true
 	}
 	if in.Tags != nil {
-		set["tags"] = *in.Tags
+		patch.Tags, patch.TagsSet = *in.Tags, true
+		hasField = true
 	}
 	if in.Chapters != nil {
-		set["chapters"] = *in.Chapters
+		patch.Chapters, patch.ChaptersSet = int32(*in.Chapters), true
+		hasField = true
 	}
 	if in.Rating != nil {
-		set["rating"] = *in.Rating
+		patch.Rating, patch.RatingSet = *in.Rating, true
+		hasField = true
 	}
 	if in.CoverURL != nil {
-		set["cover_url"] = *in.CoverURL
+		patch.CoverUrl, patch.CoverUrlSet = *in.CoverURL, true
+		hasField = true
 	}
 	if in.Popularity != nil {
-		set["popularity"] = *in.Popularity
+		patch.Popularity, patch.PopularitySet = int32(*in.Popularity), true
+		hasField = true
 	}
-	if len(set) == 0 {
+	if !hasField {
 		response.RespondError(c, http.StatusBadRequest, "NO_FIELDS", "request body has no updatable fields", nil)
 		return
 	}
 
-	out, err := h.svc.Update(c.Request.Context(), id, set)
-	if err != nil {
-		response.RespondDomainError(c, err)
+	resp, err := h.client.UpdateManga(c.Request.Context(), &catalogpb.UpdateMangaRequest{
+		Id:    id,
+		Patch: patch,
+	})
+	if grpcclient.RespondGRPCError(c, err) {
 		return
 	}
-	c.JSON(http.StatusOK, out)
+	m, convErr := mangaGrpc.MangaFromProto(resp)
+	if convErr != nil {
+		response.RespondError(c, http.StatusInternalServerError, "INTERNAL", convErr.Error(), nil)
+		return
+	}
+	c.JSON(http.StatusOK, m)
 }
 
 func (h *MangaHandler) Delete(c *gin.Context) {
-	id, ok := response.ParseObjectID(c, "id")
-	if !ok {
+	id := c.Param("id")
+	if id == "" {
+		response.RespondError(c, http.StatusBadRequest, "INVALID_ID", "missing manga id", nil)
 		return
 	}
-	if err := h.svc.Delete(c.Request.Context(), id); err != nil {
-		response.RespondDomainError(c, err)
+	_, err := h.client.DeleteManga(c.Request.Context(), &catalogpb.DeleteMangaRequest{Id: id})
+	if grpcclient.RespondGRPCError(c, err) {
 		return
 	}
 	c.Status(http.StatusNoContent)
 }
 
-func parseObjectIDList(c *gin.Context, field string, raw []string) ([]primitive.ObjectID, bool) {
-	if len(raw) == 0 {
-		return nil, true
+func splitCSV(raw string) []string {
+	if raw == "" {
+		return nil
 	}
-	out := make([]primitive.ObjectID, 0, len(raw))
-	for _, s := range raw {
-		id, err := primitive.ObjectIDFromHex(s)
-		if err != nil {
-			response.RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid object id in "+field, map[string]any{"value": s})
-			return nil, false
+	out := []string{}
+	for _, t := range strings.Split(raw, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			out = append(out, t)
 		}
-		out = append(out, id)
 	}
-	return out, true
+	return out
+}
+
+func validateHexList(c *gin.Context, field string, ids []string) bool {
+	for _, s := range ids {
+		if _, err := mangaGrpc.ValidateHex(s); err != nil {
+			response.RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid object id in "+field, map[string]any{"value": s})
+			return false
+		}
+	}
+	return true
+}
+
+func protoMangasToModels(items []*catalogpb.Manga) []*mangaModel.Manga {
+	out := make([]*mangaModel.Manga, 0, len(items))
+	for _, p := range items {
+		m, err := mangaGrpc.MangaFromProto(p)
+		if err != nil {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
 }

@@ -4,25 +4,62 @@ package mangahub.progress.v1;
 
 option go_package = "mangahub-backend/proto/progresspb;progresspb";
 
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
 service ReadingProgress {
   rpc UpsertProgress(UpsertProgressRequest) returns (Progress);
   rpc GetProgress(GetProgressRequest) returns (Progress);
   rpc ListUserProgress(ListUserProgressRequest) returns (ListUserProgressResponse);
+  rpc DeleteProgress(DeleteProgressRequest) returns (google.protobuf.Empty);
   rpc Stats(StatsRequest) returns (StatsResponse);
 }
 
 message Progress {
-  string user_id = 1;
-  string manga_id = 2;
-  string status = 3; // reading | completed | plan_to_read | dropped
-  int32 current_chapter = 4;
-  double rating = 5;
-  string last_read_at = 6;
+  string id = 1;
+  string user_id = 2;
+  string manga_id = 3;
+  string status = 4; // reading | completed | plan_to_read | dropped
+  int32 current_chapter = 5;
+  double rating = 6;
+  google.protobuf.Timestamp last_read_at = 7;
 }
 
-message UpsertProgressRequest { Progress progress = 1; }
-message GetProgressRequest { string user_id = 1; string manga_id = 2; }
-message ListUserProgressRequest { string user_id = 1; string status = 2; int32 page = 3; int32 limit = 4; }
-message ListUserProgressResponse { repeated Progress items = 1; int64 total = 2; }
+message UpsertProgressRequest {
+  string user_id = 1;
+  string manga_id = 2;
+  string status = 3;
+  int32 current_chapter = 4;
+  double rating = 5;
+}
+
+message GetProgressRequest {
+  string user_id = 1;
+  string manga_id = 2;
+}
+
+message ListUserProgressRequest {
+  string user_id = 1;
+  string status = 2;
+  int32 page = 3;
+  int32 limit = 4;
+}
+
+message ListUserProgressResponse {
+  repeated Progress items = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  int64 total = 4;
+}
+
+message DeleteProgressRequest {
+  string user_id = 1;
+  string manga_id = 2;
+}
+
 message StatsRequest { string user_id = 1; }
-message StatsResponse { int32 reading = 1; int32 completed = 2; int32 plan_to_read = 3; int32 chapters_read = 4; }
+
+message StatsResponse {
+  // Buckets keyed by status name (e.g. "reading", "completed", ...).
+  map<string, int32> buckets = 1;
+}

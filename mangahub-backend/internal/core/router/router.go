@@ -6,29 +6,22 @@ import (
 
 	"mangahub-backend/internal/core/external"
 	"mangahub-backend/internal/core/middleware"
+	"mangahub-backend/internal/core/ws"
+	"mangahub-backend/internal/gateway/grpcclient"
 
 	artistController "mangahub-backend/internal/modules/artist/controller"
-	artistService "mangahub-backend/internal/modules/artist/service"
-
-	mangaController "mangahub-backend/internal/modules/manga/controller"
-	mangaService "mangahub-backend/internal/modules/manga/service"
-
-	progressController "mangahub-backend/internal/modules/progress/controller"
-	progressService "mangahub-backend/internal/modules/progress/service"
-
-	crudController "mangahub-backend/internal/modules/crud/controller"
-
 	authController "mangahub-backend/internal/modules/auth/controller"
 	authService "mangahub-backend/internal/modules/auth/service"
+	crudController "mangahub-backend/internal/modules/crud/controller"
+	mangaController "mangahub-backend/internal/modules/manga/controller"
+	prefsController "mangahub-backend/internal/modules/prefs/controller"
+	progressController "mangahub-backend/internal/modules/progress/controller"
 	wsController "mangahub-backend/internal/modules/ws/controller"
-	"mangahub-backend/internal/core/ws"
 )
 
 type Deps struct {
 	MongoClient *mongo.Client
-	MangaSvc    *mangaService.Service
-	ArtistSvc   *artistService.Service
-	ProgressSvc *progressService.Service
+	Clients     *grpcclient.Clients
 	Aggregator  *external.Aggregator
 	AdminToken  string
 	AuthSvc     *authService.AuthService
@@ -44,10 +37,11 @@ func NewRouter(env string, d Deps) *gin.Engine {
 	r.Use(gin.Recovery(), gin.Logger(), middleware.CORS())
 
 	healthH := NewHealthHandler(d.MongoClient)
-	mangaH := mangaController.NewMangaHandler(d.MangaSvc)
-	artistH := artistController.NewArtistHandler(d.ArtistSvc, d.MangaSvc)
-	statsH := crudController.NewStatsHandler(d.MangaSvc)
-	progressH := progressController.NewProgressHandler(d.ProgressSvc)
+	mangaH := mangaController.NewMangaHandler(d.Clients.Catalog)
+	artistH := artistController.NewArtistHandler(d.Clients.Artist)
+	statsH := crudController.NewStatsHandler(d.Clients.Catalog)
+	progressH := progressController.NewProgressHandler(d.Clients.Progress)
+	prefsH := prefsController.NewPrefsHandler(d.Clients.Prefs)
 	authH := authController.NewAuthHandler(d.AuthSvc)
 	wsH := wsController.NewWSHandler(d.Hub, d.AuthSvc)
 
@@ -91,10 +85,17 @@ func NewRouter(env string, d Deps) *gin.Engine {
 		me.PUT("/reading/:mangaId", progressH.Upsert)
 		me.DELETE("/reading/:mangaId", progressH.Delete)
 		me.GET("/stats", progressH.Stats)
+
+		me.GET("/preferences", prefsH.GetPreferences)
+		me.PUT("/preferences", prefsH.UpdatePreferences)
+
+		me.GET("/subscriptions", prefsH.ListSubscriptions)
+		me.POST("/subscriptions", prefsH.Subscribe)
+		me.DELETE("/subscriptions/:room", prefsH.Unsubscribe)
 	}
 
 	if d.Aggregator != nil {
-		adminH := crudController.NewAdminHandler(d.Aggregator, d.MangaSvc, d.Hub)
+		adminH := crudController.NewAdminHandler(d.Aggregator, d.Clients.Catalog, d.Hub)
 		admin := r.Group("/admin", middleware.RequireAdmin(d.AdminToken))
 		{
 			admin.POST("/import", adminH.Import)

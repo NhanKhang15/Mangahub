@@ -1,32 +1,26 @@
 package controller
 
 import (
-	"mangahub-backend/internal/modules/artist/dto"
-
-artistModel "mangahub-backend/internal/modules/artist/model"
-	"mangahub-backend/internal/core/response"
-
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
 
+	"mangahub-backend/internal/core/response"
+	"mangahub-backend/internal/gateway/grpcclient"
+	artistGrpc "mangahub-backend/internal/modules/artist/grpcserver"
+	artistModel "mangahub-backend/internal/modules/artist/model"
 
-
-
-	artistService "mangahub-backend/internal/modules/artist/service"
-	mangaService "mangahub-backend/internal/modules/manga/service"
+	"mangahub-backend/internal/modules/artist/dto"
+	artistpb "mangahub-backend/proto/artistpb"
 )
 
 type ArtistHandler struct {
-	svc       *artistService.Service
-	mangaSvc  *mangaService.Service
+	client artistpb.ArtistClient
 }
 
-func NewArtistHandler(s *artistService.Service, m *mangaService.Service) *ArtistHandler {
-	return &ArtistHandler{svc: s, mangaSvc: m}
+func NewArtistHandler(c artistpb.ArtistClient) *ArtistHandler {
+	return &ArtistHandler{client: c}
 }
-
 
 func (h *ArtistHandler) List(c *gin.Context) {
 	var q dto.ListArtistQuery
@@ -34,22 +28,35 @@ func (h *ArtistHandler) List(c *gin.Context) {
 		response.RespondError(c, http.StatusBadRequest, "INVALID_QUERY", err.Error(), nil)
 		return
 	}
-	items, total, err := h.svc.List(c.Request.Context(), q.Q, q.Page, q.Limit)
-	if err != nil {
-		response.RespondDomainError(c, err)
+	resp, err := h.client.ListArtist(c.Request.Context(), &artistpb.ListArtistRequest{
+		Page:  int32(q.Page),
+		Limit: int32(q.Limit),
+		Q:     q.Q,
+	})
+	if grpcclient.RespondGRPCError(c, err) {
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": items, "page": q.Page, "limit": q.Limit, "total": total})
+	c.JSON(http.StatusOK, gin.H{
+		"data":  protoArtistsToModels(resp.GetItems()),
+		"page":  q.Page,
+		"limit": q.Limit,
+		"total": resp.GetTotal(),
+	})
 }
 
 func (h *ArtistHandler) Get(c *gin.Context) {
-	id, ok := response.ParseObjectID(c, "id")
-	if !ok {
+	id := c.Param("id")
+	if id == "" {
+		response.RespondError(c, http.StatusBadRequest, "INVALID_ID", "missing artist id", nil)
 		return
 	}
-	a, err := h.svc.Get(c.Request.Context(), id)
-	if err != nil {
-		response.RespondDomainError(c, err)
+	resp, err := h.client.GetArtist(c.Request.Context(), &artistpb.GetArtistRequest{Id: id})
+	if grpcclient.RespondGRPCError(c, err) {
+		return
+	}
+	a, convErr := artistGrpc.ArtistFromProto(resp)
+	if convErr != nil {
+		response.RespondError(c, http.StatusInternalServerError, "INTERNAL", convErr.Error(), nil)
 		return
 	}
 	c.JSON(http.StatusOK, a)
@@ -61,18 +68,28 @@ func (h *ArtistHandler) Create(c *gin.Context) {
 		response.RespondError(c, http.StatusBadRequest, "INVALID_BODY", err.Error(), nil)
 		return
 	}
-	a := &artistModel.Artist{Name: in.Name, Role: in.Role, Bio: in.Bio}
-	out, err := h.svc.Create(c.Request.Context(), a)
-	if err != nil {
-		response.RespondDomainError(c, err)
+	resp, err := h.client.CreateArtist(c.Request.Context(), &artistpb.CreateArtistRequest{
+		Artist: &artistpb.ArtistEntity{
+			Name: in.Name,
+			Role: in.Role,
+			Bio:  in.Bio,
+		},
+	})
+	if grpcclient.RespondGRPCError(c, err) {
 		return
 	}
-	c.JSON(http.StatusCreated, out)
+	a, convErr := artistGrpc.ArtistFromProto(resp)
+	if convErr != nil {
+		response.RespondError(c, http.StatusInternalServerError, "INTERNAL", convErr.Error(), nil)
+		return
+	}
+	c.JSON(http.StatusCreated, a)
 }
 
 func (h *ArtistHandler) Update(c *gin.Context) {
-	id, ok := response.ParseObjectID(c, "id")
-	if !ok {
+	id := c.Param("id")
+	if id == "" {
+		response.RespondError(c, http.StatusBadRequest, "INVALID_ID", "missing artist id", nil)
 		return
 	}
 	var in dto.UpdateArtistInput
@@ -80,44 +97,58 @@ func (h *ArtistHandler) Update(c *gin.Context) {
 		response.RespondError(c, http.StatusBadRequest, "INVALID_BODY", err.Error(), nil)
 		return
 	}
-	set := bson.M{}
+	patch := &artistpb.ArtistPatch{}
+	hasField := false
 	if in.Name != nil {
-		set["name"] = *in.Name
+		patch.Name, patch.NameSet = *in.Name, true
+		hasField = true
 	}
 	if in.Role != nil {
-		set["role"] = *in.Role
+		patch.Role, patch.RoleSet = *in.Role, true
+		hasField = true
 	}
 	if in.Bio != nil {
-		set["bio"] = *in.Bio
+		patch.Bio, patch.BioSet = *in.Bio, true
+		hasField = true
 	}
-	if len(set) == 0 {
+	if !hasField {
 		response.RespondError(c, http.StatusBadRequest, "NO_FIELDS", "request body has no updatable fields", nil)
 		return
 	}
-	out, err := h.svc.Update(c.Request.Context(), id, set)
-	if err != nil {
-		response.RespondDomainError(c, err)
+	resp, err := h.client.UpdateArtist(c.Request.Context(), &artistpb.UpdateArtistRequest{
+		Id:    id,
+		Patch: patch,
+	})
+	if grpcclient.RespondGRPCError(c, err) {
 		return
 	}
-	c.JSON(http.StatusOK, out)
+	a, convErr := artistGrpc.ArtistFromProto(resp)
+	if convErr != nil {
+		response.RespondError(c, http.StatusInternalServerError, "INTERNAL", convErr.Error(), nil)
+		return
+	}
+	c.JSON(http.StatusOK, a)
 }
 
 func (h *ArtistHandler) Delete(c *gin.Context) {
-	id, ok := response.ParseObjectID(c, "id")
-	if !ok {
+	id := c.Param("id")
+	if id == "" {
+		response.RespondError(c, http.StatusBadRequest, "INVALID_ID", "missing artist id", nil)
 		return
 	}
-	if err := h.svc.Delete(c.Request.Context(), id); err != nil {
-		response.RespondDomainError(c, err)
+	_, err := h.client.DeleteArtist(c.Request.Context(), &artistpb.DeleteArtistRequest{Id: id})
+	if grpcclient.RespondGRPCError(c, err) {
 		return
 	}
 	c.Status(http.StatusNoContent)
 }
 
-
+// ListMangaByArtist hits artist-svc, which in turn calls catalog-svc internally.
+// The gateway never touches the manga collection on this path.
 func (h *ArtistHandler) ListMangaByArtist(c *gin.Context) {
-	id, ok := response.ParseObjectID(c, "id")
-	if !ok {
+	id := c.Param("id")
+	if id == "" {
+		response.RespondError(c, http.StatusBadRequest, "INVALID_ID", "missing artist id", nil)
 		return
 	}
 	var q dto.ListArtistMangaQuery
@@ -125,10 +156,42 @@ func (h *ArtistHandler) ListMangaByArtist(c *gin.Context) {
 		response.RespondError(c, http.StatusBadRequest, "INVALID_QUERY", err.Error(), nil)
 		return
 	}
-	items, total, err := h.mangaSvc.ListByArtist(c.Request.Context(), id, q.Page, q.Limit)
-	if err != nil {
-		response.RespondDomainError(c, err)
+	resp, err := h.client.ListArtistManga(c.Request.Context(), &artistpb.ListArtistMangaRequest{
+		ArtistId: id,
+		Page:     int32(q.Page),
+		Limit:    int32(q.Limit),
+	})
+	if grpcclient.RespondGRPCError(c, err) {
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": items, "page": q.Page, "limit": q.Limit, "total": total})
+	items := make([]gin.H, 0, len(resp.GetItems()))
+	for _, m := range resp.GetItems() {
+		items = append(items, gin.H{
+			"id":         m.GetId(),
+			"title":      m.GetTitle(),
+			"cover_url":  m.GetCoverUrl(),
+			"status":     m.GetStatus(),
+			"chapters":   m.GetChapters(),
+			"rating":     m.GetRating(),
+			"popularity": m.GetPopularity(),
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"data":  items,
+		"page":  q.Page,
+		"limit": q.Limit,
+		"total": resp.GetTotal(),
+	})
+}
+
+func protoArtistsToModels(items []*artistpb.ArtistEntity) []*artistModel.Artist {
+	out := make([]*artistModel.Artist, 0, len(items))
+	for _, p := range items {
+		a, err := artistGrpc.ArtistFromProto(p)
+		if err != nil {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }

@@ -24,5 +24,92 @@ services:
       mongo:
         condition: service_healthy
 
+  catalog-svc:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.catalog
+    environment:
+      GRPC_PORT: "50051"
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: mangahub
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  artist-svc:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.artist
+    environment:
+      GRPC_PORT: "50052"
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: mangahub
+      CATALOG_GRPC_ADDR: catalog-svc:50051
+    depends_on:
+      mongo:
+        condition: service_healthy
+      catalog-svc:
+        condition: service_started
+
+  progress-svc:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.progress
+    environment:
+      GRPC_PORT: "50053"
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: mangahub
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  prefs-svc:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.prefs
+    environment:
+      GRPC_PORT: "50054"
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: mangahub
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.gateway
+    ports:
+      - "8080:8080"
+    environment:
+      HTTP_PORT: "8080"
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: mangahub
+      JWT_SECRET: ${JWT_SECRET:-change-me}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      CATALOG_GRPC_ADDR: catalog-svc:50051
+      ARTIST_GRPC_ADDR: artist-svc:50052
+      PROGRESS_GRPC_ADDR: progress-svc:50053
+      PREFS_GRPC_ADDR: prefs-svc:50054
+      MANGADEX_BASE: https://api.mangadex.org
+      MANGADEX_TOKEN: ${MANGADEX_TOKEN:-}
+      MAL_BASE: https://api.myanimelist.net/v2
+      MAL_CLIENT_ID: ${MAL_CLIENT_ID:-}
+      ANILIST_BASE: https://graphql.anilist.co
+      ANILIST_TOKEN: ${ANILIST_TOKEN:-}
+      POLL_INTERVAL: 5m
+      ENV: ${ENV:-dev}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      catalog-svc:
+        condition: service_started
+      artist-svc:
+        condition: service_started
+      progress-svc:
+        condition: service_started
+      prefs-svc:
+        condition: service_started
+
 volumes:
   mongo_data:

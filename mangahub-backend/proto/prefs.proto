@@ -5,11 +5,12 @@ package mangahub.prefs.v1;
 option go_package = "mangahub-backend/proto/prefspb;prefspb";
 
 import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
 
 service UserPreferences {
   rpc GetPreferences(GetPreferencesRequest) returns (Preferences);
   rpc UpdatePreferences(UpdatePreferencesRequest) returns (Preferences);
-  rpc Subscribe(SubscribeRequest) returns (google.protobuf.Empty);
+  rpc Subscribe(SubscribeRequest) returns (Subscription);
   rpc Unsubscribe(UnsubscribeRequest) returns (google.protobuf.Empty);
   rpc ListSubscriptions(ListSubscriptionsRequest) returns (ListSubscriptionsResponse);
 }
@@ -19,11 +20,44 @@ message Preferences {
   repeated string favorite_genres = 2;
   string language = 3;
   bool nsfw = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message Subscription {
+  string id = 1;
+  string user_id = 2;
+  string room = 3;
+  google.protobuf.Timestamp created_at = 4;
 }
 
 message GetPreferencesRequest { string user_id = 1; }
-message UpdatePreferencesRequest { Preferences preferences = 1; }
-message SubscribeRequest { string user_id = 1; string room = 2; }
-message UnsubscribeRequest { string user_id = 1; string room = 2; }
+
+message PreferencesPatch {
+  repeated string favorite_genres = 1;
+  bool favorite_genres_set = 2;
+  string language = 3;
+  bool language_set = 4;
+  bool nsfw = 5;
+  bool nsfw_set = 6;
+}
+
+message UpdatePreferencesRequest {
+  string user_id = 1;
+  PreferencesPatch patch = 2;
+}
+
+message SubscribeRequest {
+  string user_id = 1;
+  string room = 2;
+}
+
+message UnsubscribeRequest {
+  string user_id = 1;
+  string room = 2;
+}
+
 message ListSubscriptionsRequest { string user_id = 1; }
-message ListSubscriptionsResponse { repeated string rooms = 1; }
+
+message ListSubscriptionsResponse {
+  repeated Subscription items = 1;
+}
