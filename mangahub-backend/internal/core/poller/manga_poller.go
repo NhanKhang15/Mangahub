@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"mangahub-backend/internal/core/ws"
+	"mangahub-backend/internal/gateway/notifier"
 	catalogpb "mangahub-backend/proto/catalogpb"
 )
 
@@ -19,13 +20,15 @@ type MangaPoller struct {
 	hub      *ws.Hub
 	catalog  catalogpb.MangaCatalogClient
 	interval time.Duration
+	notifier *notifier.Client
 }
 
-func NewMangaPoller(hub *ws.Hub, catalog catalogpb.MangaCatalogClient, interval time.Duration) *MangaPoller {
+func NewMangaPoller(hub *ws.Hub, catalog catalogpb.MangaCatalogClient, interval time.Duration, n *notifier.Client) *MangaPoller {
 	return &MangaPoller{
 		hub:      hub,
 		catalog:  catalog,
 		interval: interval,
+		notifier: n,
 	}
 }
 
@@ -78,6 +81,17 @@ func (p *MangaPoller) Run(ctx context.Context) {
 					Chapter: current,
 					TS:      time.Now().Format(time.RFC3339),
 				})
+
+				// Also fan out via UDP to any registered notification clients.
+				if p.notifier != nil {
+					ctx2, cancel := context.WithTimeout(ctx, 2*time.Second)
+					p.notifier.PublishChapter(ctx2, notifier.ChapterEvent{
+						MangaID: mangaID,
+						Chapter: current,
+						Message: fmt.Sprintf("Chapter %d released!", current),
+					})
+					cancel()
+				}
 			}
 		}
 	}

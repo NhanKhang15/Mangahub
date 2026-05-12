@@ -6,7 +6,7 @@ services:
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      test: [ "CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')" ]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -29,9 +29,8 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.catalog
     environment:
-      GRPC_PORT: "50051"
       MONGO_URI: mongodb://mongo:27017
-      MONGO_DB: mangahub
+      GRPC_PORT: "50051"
     depends_on:
       mongo:
         condition: service_healthy
@@ -41,24 +40,19 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.artist
     environment:
-      GRPC_PORT: "50052"
       MONGO_URI: mongodb://mongo:27017
-      MONGO_DB: mangahub
-      CATALOG_GRPC_ADDR: catalog-svc:50051
+      GRPC_PORT: "50052"
     depends_on:
       mongo:
         condition: service_healthy
-      catalog-svc:
-        condition: service_started
 
   progress-svc:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.progress
     environment:
-      GRPC_PORT: "50053"
       MONGO_URI: mongodb://mongo:27017
-      MONGO_DB: mangahub
+      GRPC_PORT: "50053"
     depends_on:
       mongo:
         condition: service_healthy
@@ -68,12 +62,34 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.prefs
     environment:
-      GRPC_PORT: "50054"
       MONGO_URI: mongodb://mongo:27017
-      MONGO_DB: mangahub
+      GRPC_PORT: "50054"
     depends_on:
       mongo:
         condition: service_healthy
+
+  tcp-svc:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.tcpsync
+    ports:
+      - "9000:9000"   # raw TCP for clients
+      - "9100:9100"   # internal HTTP publish API
+    environment:
+      TCP_PORT: "9000"
+      TCP_HTTP_PORT: "9100"
+
+  udp-svc:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.udpnotify
+    ports:
+      - "9001:9001/udp"   # UDP for clients
+      - "9101:9101"       # internal HTTP publish API
+    environment:
+      UDP_PORT: "9001"
+      UDP_HTTP_PORT: "9101"
+      UDP_TTL: "90s"
 
   gateway:
     build:
@@ -84,21 +100,14 @@ services:
     environment:
       HTTP_PORT: "8080"
       MONGO_URI: mongodb://mongo:27017
-      MONGO_DB: mangahub
-      JWT_SECRET: ${JWT_SECRET:-change-me}
-      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      JWT_SECRET: change-me
       CATALOG_GRPC_ADDR: catalog-svc:50051
       ARTIST_GRPC_ADDR: artist-svc:50052
       PROGRESS_GRPC_ADDR: progress-svc:50053
       PREFS_GRPC_ADDR: prefs-svc:50054
+      TCP_PUBLISH_URL: http://tcp-svc:9100/publish
+      UDP_PUBLISH_URL: http://udp-svc:9101/publish
       MANGADEX_BASE: https://api.mangadex.org
-      MANGADEX_TOKEN: ${MANGADEX_TOKEN:-}
-      MAL_BASE: https://api.myanimelist.net/v2
-      MAL_CLIENT_ID: ${MAL_CLIENT_ID:-}
-      ANILIST_BASE: https://graphql.anilist.co
-      ANILIST_TOKEN: ${ANILIST_TOKEN:-}
-      POLL_INTERVAL: 5m
-      ENV: ${ENV:-dev}
     depends_on:
       mongo:
         condition: service_healthy
@@ -109,6 +118,10 @@ services:
       progress-svc:
         condition: service_started
       prefs-svc:
+        condition: service_started
+      tcp-svc:
+        condition: service_started
+      udp-svc:
         condition: service_started
 
 volumes:

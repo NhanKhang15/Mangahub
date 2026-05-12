@@ -8,6 +8,7 @@ import (
 	"mangahub-backend/internal/core/middleware"
 	"mangahub-backend/internal/core/ws"
 	"mangahub-backend/internal/gateway/grpcclient"
+	"mangahub-backend/internal/gateway/notifier"
 
 	artistController "mangahub-backend/internal/modules/artist/controller"
 	authController "mangahub-backend/internal/modules/auth/controller"
@@ -26,6 +27,7 @@ type Deps struct {
 	AdminToken  string
 	AuthSvc     *authService.AuthService
 	Hub         *ws.Hub
+	Notifier    *notifier.Client
 }
 
 func NewRouter(env string, d Deps) *gin.Engine {
@@ -40,7 +42,7 @@ func NewRouter(env string, d Deps) *gin.Engine {
 	mangaH := mangaController.NewMangaHandler(d.Clients.Catalog)
 	artistH := artistController.NewArtistHandler(d.Clients.Artist)
 	statsH := crudController.NewStatsHandler(d.Clients.Catalog)
-	progressH := progressController.NewProgressHandler(d.Clients.Progress)
+	progressH := progressController.NewProgressHandler(d.Clients.Progress, d.Notifier)
 	prefsH := prefsController.NewPrefsHandler(d.Clients.Prefs)
 	authH := authController.NewAuthHandler(d.AuthSvc)
 	wsH := wsController.NewWSHandler(d.Hub, d.AuthSvc)
@@ -95,7 +97,7 @@ func NewRouter(env string, d Deps) *gin.Engine {
 	}
 
 	if d.Aggregator != nil {
-		adminH := crudController.NewAdminHandler(d.Aggregator, d.Clients.Catalog, d.Hub)
+		adminH := crudController.NewAdminHandler(d.Aggregator, d.Clients.Catalog, d.Hub, d.Notifier)
 		admin := r.Group("/admin", middleware.RequireAdmin(d.AdminToken))
 		{
 			admin.POST("/import", adminH.Import)

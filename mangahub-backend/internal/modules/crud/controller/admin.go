@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"mangahub-backend/internal/core/external"
 	"mangahub-backend/internal/core/response"
 	"mangahub-backend/internal/core/ws"
+	"mangahub-backend/internal/gateway/notifier"
 	mangaGrpc "mangahub-backend/internal/modules/manga/grpcserver"
 	mangaModel "mangahub-backend/internal/modules/manga/model"
 
@@ -18,13 +20,14 @@ import (
 )
 
 type AdminHandler struct {
-	agg    *external.Aggregator
-	client catalogpb.MangaCatalogClient
-	hub    *ws.Hub
+	agg      *external.Aggregator
+	client   catalogpb.MangaCatalogClient
+	hub      *ws.Hub
+	notifier *notifier.Client
 }
 
-func NewAdminHandler(agg *external.Aggregator, client catalogpb.MangaCatalogClient, hub *ws.Hub) *AdminHandler {
-	return &AdminHandler{agg: agg, client: client, hub: hub}
+func NewAdminHandler(agg *external.Aggregator, client catalogpb.MangaCatalogClient, hub *ws.Hub, n *notifier.Client) *AdminHandler {
+	return &AdminHandler{agg: agg, client: client, hub: hub, notifier: n}
 }
 
 func (h *AdminHandler) Import(c *gin.Context) {
@@ -75,6 +78,16 @@ func (h *AdminHandler) Notify(c *gin.Context) {
 		Type:    "notification",
 		Content: req.Content,
 	})
+
+	// Also broadcast via UDP so any registered desktop notifier sees the same
+	// notification — handy for the "5 protocols at once" demo.
+	if h.notifier != nil {
+		ctx2, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+		h.notifier.PublishChapter(ctx2, notifier.ChapterEvent{
+			Message: req.Content,
+		})
+	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "sent"})
 }

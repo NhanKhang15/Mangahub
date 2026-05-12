@@ -17,6 +17,7 @@ import (
 	"mangahub-backend/internal/core/router"
 	"mangahub-backend/internal/core/ws"
 	"mangahub-backend/internal/gateway/grpcclient"
+	"mangahub-backend/internal/gateway/notifier"
 
 	authService "mangahub-backend/internal/modules/auth/service"
 )
@@ -73,7 +74,12 @@ func main() {
 	hub := ws.NewHub()
 	go hub.Run()
 
-	mangaPoller := poller.NewMangaPoller(hub, clients.Catalog, cfg.PollInterval)
+	notifierClient := notifier.New(cfg.TCPPublishURL, cfg.UDPPublishURL, cfg.InternalToken)
+	if cfg.TCPPublishURL != "" || cfg.UDPPublishURL != "" {
+		log.Printf("notifier: tcp=%s udp=%s", cfg.TCPPublishURL, cfg.UDPPublishURL)
+	}
+
+	mangaPoller := poller.NewMangaPoller(hub, clients.Catalog, cfg.PollInterval, notifierClient)
 	go mangaPoller.Run(rootCtx)
 
 	deps := router.Deps{
@@ -83,6 +89,7 @@ func main() {
 		AdminToken:  cfg.AdminToken,
 		AuthSvc:     authSvc,
 		Hub:         hub,
+		Notifier:    notifierClient,
 	}
 
 	r := router.NewRouter(cfg.Env, deps)

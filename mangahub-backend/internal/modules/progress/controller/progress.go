@@ -1,13 +1,16 @@
 package controller
 
 import (
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"mangahub-backend/internal/core/middleware"
 	"mangahub-backend/internal/core/response"
 	"mangahub-backend/internal/gateway/grpcclient"
+	"mangahub-backend/internal/gateway/notifier"
 	progressGrpc "mangahub-backend/internal/modules/progress/grpcserver"
 	progressModel "mangahub-backend/internal/modules/progress/model"
 	"mangahub-backend/internal/platform/grpcinterceptor"
@@ -17,11 +20,12 @@ import (
 )
 
 type ProgressHandler struct {
-	client progresspb.ReadingProgressClient
+	client   progresspb.ReadingProgressClient
+	notifier *notifier.Client
 }
 
-func NewProgressHandler(c progresspb.ReadingProgressClient) *ProgressHandler {
-	return &ProgressHandler{client: c}
+func NewProgressHandler(c progresspb.ReadingProgressClient, n *notifier.Client) *ProgressHandler {
+	return &ProgressHandler{client: c, notifier: n}
 }
 
 func (h *ProgressHandler) List(c *gin.Context) {
@@ -77,6 +81,22 @@ func (h *ProgressHandler) Upsert(c *gin.Context) {
 		response.RespondError(c, http.StatusInternalServerError, "INTERNAL", convErr.Error(), nil)
 		return
 	}
+
+	// Fan out to tcp-svc so other devices subscribed to this user_id see the
+	// new progress in real time. Fire-and-forget — never block the HTTP reply.
+	if h.notifier != nil {
+		go func(ev notifier.ProgressEvent) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			h.notifier.PublishProgress(ctx, ev)
+		}(notifier.ProgressEvent{
+			UserID:  uid.Hex(),
+			MangaID: mangaIDRaw,
+			Chapter: in.CurrentChapter,
+			Status:  in.Status,
+		})
+	}
+
 	c.JSON(http.StatusOK, model)
 }
 

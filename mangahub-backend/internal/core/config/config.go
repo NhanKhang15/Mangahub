@@ -27,6 +27,12 @@ type Config struct {
 
 	PollInterval time.Duration
 
+	// Internal HTTP endpoints exposed by tcp-svc and udp-svc. The gateway
+	// posts JSON payloads here to fan out events. Empty value disables.
+	TCPPublishURL string
+	UDPPublishURL string
+	InternalToken string
+
 	Env string // dev | prod
 }
 
@@ -47,6 +53,9 @@ func Load() Config {
 		AniListToken:  getenv("ANILIST_TOKEN", ""),
 		AdminToken:    getenv("ADMIN_TOKEN", ""),
 		PollInterval:  getDuration("POLL_INTERVAL", 5*time.Minute),
+		TCPPublishURL: getenv("TCP_PUBLISH_URL", "http://localhost:9100/publish"),
+		UDPPublishURL: getenv("UDP_PUBLISH_URL", "http://localhost:9101/publish"),
+		InternalToken: getenv("INTERNAL_TOKEN", ""),
 		Env:           getenv("ENV", "dev"),
 	}
 }
